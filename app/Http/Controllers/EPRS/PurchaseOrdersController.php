@@ -1,0 +1,48 @@
+<?php
+
+namespace App\Http\Controllers\EPRS;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\EPRS\PurchaseOrders;
+use Illuminate\Http\JsonResponse;
+
+class PurchaseOrdersController extends Controller
+{
+
+    protected $PurchaseOrdersModel;
+
+    public function __construct()
+    {
+        $this->PurchaseOrdersModel = new PurchaseOrders();
+    }
+
+    public function searchData(Request $request): JsonResponse
+    {
+        try {
+            $keyword = $request->input('keyword');
+
+            $data = $this->PurchaseOrdersModel->searchData($keyword);
+
+            if ($data) {
+                return response()->json([
+                    "code" => 200,
+                    "status" => true,
+                    "data" => $data
+                ], 200);
+            } else {
+                return response()->json([
+                    "code" => 404,
+                    "status" => false,
+                    "message" => "Not found.",
+                ], 404);
+            }
+        } catch (\Throwable $th) {
+            return response()->json([
+                'code' => 500,
+                'status' => false,
+                'message' => $th->getMessage()
+            ], 500);
+        }
+    }
+}
