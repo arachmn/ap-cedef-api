@@ -63,7 +63,7 @@ class ReceiptNotes extends Model
         }
     }
 
-    public function getDataApprove($perPage, $id)
+    public function getDataApprove($perPage, $status, $dep, $id)
     {
         try {
             $data = $this->with([
@@ -78,7 +78,12 @@ class ReceiptNotes extends Model
                 ->whereHas('approvalDataHeaders.approvals', function ($query) use ($id) {
                     $query->where('user_id', $id);
                 })
-                ->orderByDesc('id')
+                ->whereNotIn('rn_status', [1, 3]);
+
+            $status != 7 ? $data->where('rn_status', $status) : $data;
+            $dep ? $data->where('dep_code', $dep) : $data;
+
+            $data = $data->orderBy('rn_status', 'asc')
                 ->paginate($perPage);
 
             return $data;

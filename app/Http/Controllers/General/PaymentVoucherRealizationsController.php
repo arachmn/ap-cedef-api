@@ -72,11 +72,10 @@ class PaymentVoucherRealizationsController extends Controller
                 'pvr_number' => 'required|string',
                 'pvr_status' => 'required|integer',
                 'pvr_rel_date' => 'required|date',
-                'pvr_due_date' => 'required|date',
+                'bank_id' => 'required|integer',
                 'pvr_note' => 'nullable|string',
                 'user_id' => 'required|integer',
             ]);
-
 
             if ($validator->fails()) {
                 return response()->json([
@@ -86,7 +85,6 @@ class PaymentVoucherRealizationsController extends Controller
                 ], 422);
             }
 
-
             $validatedData = $validator->validated();
 
             $this->connFirst->beginTransaction();
@@ -94,27 +92,18 @@ class PaymentVoucherRealizationsController extends Controller
             $validatedData['pvr_doc_date'] = date('Y-m-d');
             $validatedData['pv_number'] = $getPV->pv_number;
 
-            $pvStatus = $validatedData['pvr_status'];
-
             PaymentVoucherRealizations::create($validatedData);
 
-            $pviData = PaymentVouchers::with('paymentVoucherInvoices')->get();
+            $getPV->update(['pv_status' => 6]);
 
-            if ($pvStatus == 1) {
-                $getPV->update(['pv_status' => 6]);
-
-                foreach ($pviData as $item) {
-                    $getInv = Invoices::where('inv_number', $item->inv_number)->where('inv_status', 2)->first();
-
-                    if ($getInv) {
-                        $invPayStatus = (intval($getInv->inv_not_payed) - intval($getPV->pv_amount) == 0) ? 1 : 0;
-
-                        $getInv->update([
-                            'inv_payed' =>  intval($getInv->inv_payed) + intval($getPV->pv_amount),
-                            'inv_not_payed' => intval($getInv->inv_not_payed) - intval($getPV->pv_amount),
-                            'inv_pay_status' => $invPayStatus,
-                        ]);
-                    }
+            foreach ($getPV->paymentVoucherInvoices as $item) {
+                $getInv = Invoices::where('inv_number', $item->inv_number)->where('inv_status', 4)->first();
+                if ($getInv) {
+                    $getInv->update([
+                        'inv_payed' => intval($getInv->inv_payed) + intval($getPV->pv_amount),
+                        'inv_not_payed' => intval($getInv->inv_not_payed) - intval($getPV->pv_amount),
+                        'inv_pay_status' => 1,
+                    ]);
                 }
             }
 
@@ -134,6 +123,7 @@ class PaymentVoucherRealizationsController extends Controller
         }
     }
 
+
     public function cancelData(Request $request, $id): JsonResponse
     {
         try {
@@ -152,11 +142,21 @@ class PaymentVoucherRealizationsController extends Controller
                 'pv_number' => $getPV->pv_number,
                 'pvr_status' => 2,
                 'pvr_rel_date' => date('Y-m-d'),
-                'pvr_doc_date' => date('Y-m-d'),
                 'user_id' => $request->input('user'),
             ];
 
+            $pviData = PaymentVouchers::with('paymentVoucherInvoices')->get();
             $getPV->update(['pv_status' => 3]);
+
+            foreach ($pviData->paymentVoucherInvoices as $item) {
+                $getInv = Invoices::where('inv_number', $item->inv_number)->where('inv_status', 4)->first();
+
+                if ($getInv) {
+                    $getInv->update([
+                        'inv_status' => 2
+                    ]);
+                }
+            }
 
             PaymentVoucherRealizations::create($pvrData);
 

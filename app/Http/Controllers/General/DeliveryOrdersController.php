@@ -259,20 +259,12 @@ class DeliveryOrdersController extends Controller
                     'message' => "Not found."
                 ], 404);
             }
-
-            $this->connFirst->beginTransaction();
             $getDO->update(['do_status' => 3]);
-
-            if ($getRN = ReceiptNotes::where('do_id', $id)->first()) {
-                $getRN->update(['rn_status' => 3]);
-            }
-            $this->connFirst->commit();
             return response()->json([
                 'code' => 200,
                 'status' => true
             ], 200);
         } catch (\Throwable $th) {
-            $this->connFirst->rollBack();
             return response()->json([
                 'code' => 500,
                 'status' => false,

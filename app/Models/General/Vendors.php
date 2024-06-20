@@ -24,6 +24,11 @@ class Vendors extends Model
         return $this->hasMany(Invoices::class, 'vend_code', 'vend_code');
     }
 
+    public function paymentVouchers()
+    {
+        return $this->hasMany(PaymentVouchers::class, 'vend_code', 'vend_code');
+    }
+
     public function vendorAccounts()
     {
         return $this->belongsTo(VendorAccounts::class, 'account', 'acccode');

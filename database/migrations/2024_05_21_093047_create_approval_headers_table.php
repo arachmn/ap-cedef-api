@@ -14,8 +14,11 @@ return new class extends Migration
         Schema::create('approval_headers', function (Blueprint $table) {
             $table->id();
             $table->string('apvh_code')->unique();
-            $table->string('apvh_name');
+            $table->string('dep_code')->nullable();
             $table->string('apvh_description');
+            $table->integer('apvh_target');
+            $table->boolean('apvh_status');
+            $table->integer('user_id');
             $table->softDeletes();
             $table->timestamps();
         });

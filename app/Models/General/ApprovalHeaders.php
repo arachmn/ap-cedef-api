@@ -22,4 +22,36 @@ class ApprovalHeaders extends Model
     {
         return $this->hasMany(ApprovalUsers::class, 'apvh_code', 'apvh_code');
     }
+
+    public function users()
+    {
+        return $this->belongsTo(Users::class, 'user_id', 'id');
+    }
+
+    public function departements()
+    {
+        return $this->belongsTo(Departements::class, 'dep_code', 'dep_code');
+    }
+
+    public function getData($perPage, $status)
+    {
+        try {
+            $data = ApprovalHeaders::with('users', 'departements');
+            $status != 2 ? $data->where('apvh_status', $status) : $data;
+            $data = $data->orderByDesc('apvh_status')->paginate($perPage);
+            return $data;
+        } catch (\Throwable $th) {
+            return false;
+        }
+    }
+
+    public function getDetail($id)
+    {
+        try {
+            $data = ApprovalHeaders::with('users', 'approvalUsers.users', 'departements')->find($id);
+            return $data;
+        } catch (\Throwable $th) {
+            return false;
+        }
+    }
 }

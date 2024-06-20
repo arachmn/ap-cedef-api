@@ -5,6 +5,7 @@ namespace App\Models\General;
 use App\Models\AccApp\TaxAccounts;
 use App\Models\AccApp\VendorAccounts;
 use App\Models\EPRS\PurchaseOrders;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -96,222 +97,202 @@ class Invoices extends Model
         }
     }
 
-    public function getAgingSummary()
+    public function getAgingAll()
     {
         try {
-            $currentDate = date('Y-m-d');
-            $startDate = date('Y-m-d', strtotime("last Thursday", strtotime($currentDate)));
-            $endDate = date('Y-m-d', strtotime("next Wednesday", strtotime($startDate)));
+            $data = Vendors::with(['invoices' => function ($query) {
+                $query->select('vend_code', 'inv_number', 'inv_doc_date', 'inv_due_date', 'inv_not_payed')
+                    ->where('inv_pay_status', 0)
+                    ->where('inv_status', 2)
+                    ->orderBy('inv_due_date', 'asc');
+            }])->whereHas('invoices', function ($query) {
+                $query->where('inv_pay_status', 0)
+                    ->where('inv_status', 2);
+            })->get();
 
-            $futureEndDates = [];
-            for ($i = 0; $i < 5; $i++) {
-                $futureEndDates[] = $endDate;
-                $endDate = date('Y-m-d', strtotime("+7 days", strtotime($endDate)));
-            }
-            $vendors = Vendors::with(['invoices' => function ($query) {
-                $query->where('inv_status', 2)
-                    ->where('inv_pay_status', 0);
-            }])
-                ->whereHas('invoices', function ($query) {
-                    $query->where('inv_status', 2)
-                        ->where('inv_pay_status', 0);
-                })
-                ->get();
+            $beforeTotal = 0;
+            $currentTotal = 0;
+            $after1Total = 0;
+            $after2Total = 0;
+            $after3Total = 0;
+            $after4Total = 0;
+            $totalData = 0;
 
-            $data = [];
-            $totalWeekly = [
-                'total_week_1' => 0,
-                'total_week_2' => 0,
-                'total_week_3' => 0,
-                'total_week_4' => 0,
-                'total_week_5' => 0,
-            ];
-            foreach ($vendors as $vendor) {
-                $vendorInvoiceCounts = [
-                    'week_1' => 0,
-                    'week_2' => 0,
-                    'week_3' => 0,
-                    'week_4' => 0,
-                    'week_5' => 0,
-                ];
-                foreach ($vendor->invoices as $invoice) {
-                    $dueDate = $invoice->inv_due_date;
-                    $notPaidAmount = $invoice->inv_not_payed;
-                    for ($i = 0; $i < 5; $i++) {
-                        if ($dueDate <= $futureEndDates[$i]) {
-                            $vendorInvoiceCounts["week_" . ($i + 1)] += $notPaidAmount;
-                            $totalWeekly["total_week_" . ($i + 1)] += $notPaidAmount;
-                            break;
-                        }
-                    }
-                }
-                $data[] = [
-                    'vend_code' => $vendor->vend_code,
-                    'vend_name' => $vendor->vend_name,
-                    'weekly_invoice_data' => $vendorInvoiceCounts
-                ];
-            }
-            $data = array_values($data);
+            $today = Carbon::today();
+            $currentWeekStart = $today->copy()->startOfWeek(Carbon::THURSDAY);
+            $currentWeekEnd = $today->copy()->endOfWeek(Carbon::WEDNESDAY);
+            $after1WeekEnd = $currentWeekEnd->copy()->addWeek();
+            $after2WeekEnd = $after1WeekEnd->copy()->addWeek();
+            $after3WeekEnd = $after2WeekEnd->copy()->addWeek();
+            $after4WeekEnd = $after3WeekEnd->copy()->addWeek();
 
-            $finalOuput = [
-                'vendors' => $data,
-                'total_weekly' => $totalWeekly,
-            ];
-            return $finalOuput;
-        } catch (\Throwable $th) {
-            return $th->getMessage();
-        }
-    }
+            $groupedData = $data->map(function ($vendor) use ($currentWeekStart, $currentWeekEnd, $after1WeekEnd, $after2WeekEnd, $after3WeekEnd, $after4WeekEnd, &$beforeTotal, &$currentTotal, &$after1Total, &$after2Total, &$after3Total, &$after4Total, &$totalData) {
+                $beforeData = $vendor->invoices->filter(function ($invoice) use ($currentWeekStart) {
+                    return Carbon::parse($invoice->inv_due_date)->lt($currentWeekStart);
+                });
 
-    public function getAgingDetail()
-    {
-        try {
-            $currentDate = date('Y-m-d');
-            $startDate = date('Y-m-d', strtotime("last Thursday", strtotime($currentDate)));
-            $endDate = date('Y-m-d', strtotime("next Wednesday", strtotime($startDate)));
+                $currentData = $vendor->invoices->filter(function ($invoice) use ($currentWeekStart, $currentWeekEnd) {
+                    return Carbon::parse($invoice->inv_due_date)->between($currentWeekStart, $currentWeekEnd);
+                });
 
-            $futureEndDates = [];
-            for ($i = 0; $i < 5; $i++) {
-                $futureEndDates[] = $endDate;
-                $endDate = date('Y-m-d', strtotime("+7 days", strtotime($endDate)));
-            }
+                $after1Data = $vendor->invoices->filter(function ($invoice) use ($currentWeekEnd, $after1WeekEnd) {
+                    return Carbon::parse($invoice->inv_due_date)->between($currentWeekEnd->copy()->addDay(), $after1WeekEnd);
+                });
 
-            $vendors = Vendors::with(['invoices' => function ($query) {
-                $query->where('inv_status', 2)
-                    ->where('inv_pay_status', 0);
-            }])
-                ->whereHas('invoices', function ($query) {
-                    $query->where('inv_status', 2)
-                        ->where('inv_pay_status', 0);
-                })
-                ->get();
+                $after2Data = $vendor->invoices->filter(function ($invoice) use ($after1WeekEnd, $after2WeekEnd) {
+                    return Carbon::parse($invoice->inv_due_date)->between($after1WeekEnd->copy()->addDay(), $after2WeekEnd);
+                });
 
-            $vendorData = [];
-            $totalWeekly = [
-                'total_week_1' => 0,
-                'total_week_2' => 0,
-                'total_week_3' => 0,
-                'total_week_4' => 0,
-                'total_week_5' => 0,
-            ];
+                $after3Data = $vendor->invoices->filter(function ($invoice) use ($after2WeekEnd, $after3WeekEnd) {
+                    return Carbon::parse($invoice->inv_due_date)->between($after2WeekEnd->copy()->addDay(), $after3WeekEnd);
+                });
 
-            foreach ($vendors as $vendor) {
-                $weeklyInvoices = [
-                    'week_1' => ['total' => 0, 'invoices' => []],
-                    'week_2' => ['total' => 0, 'invoices' => []],
-                    'week_3' => ['total' => 0, 'invoices' => []],
-                    'week_4' => ['total' => 0, 'invoices' => []],
-                    'week_5' => ['total' => 0, 'invoices' => []],
-                ];
+                $after4Data = $vendor->invoices->filter(function ($invoice) use ($after3WeekEnd) {
+                    return Carbon::parse($invoice->inv_due_date)->gt($after3WeekEnd);
+                });
 
-                foreach ($vendor->invoices as $invoice) {
-                    $dueDate = $invoice->inv_due_date;
-                    $weekIndex = -1;
-                    foreach ($futureEndDates as $index => $futureEndDate) {
-                        if ($dueDate <= $futureEndDate) {
-                            $weekIndex = $index;
-                            break;
-                        }
-                    }
+                $beforeTotal += $beforeData->sum('inv_not_payed');
+                $currentTotal += $currentData->sum('inv_not_payed');
+                $after1Total += $after1Data->sum('inv_not_payed');
+                $after2Total += $after2Data->sum('inv_not_payed');
+                $after3Total += $after3Data->sum('inv_not_payed');
+                $after4Total += $after4Data->sum('inv_not_payed');
+                $totalData += $vendor->invoices->sum('inv_not_payed');
 
-                    if ($weekIndex == -1) {
-                        $weekIndex = 0;
-                    }
-
-                    $weekKey = 'week_' . ($weekIndex + 1);
-                    $weeklyInvoices[$weekKey]['invoices'][] = $invoice;
-                    $weeklyInvoices[$weekKey]['total'] += $invoice->inv_not_payed;
-                    $totalWeekly['total_' . $weekKey] += $invoice->inv_not_payed;
-                }
-
-                foreach ($weeklyInvoices as $key => $invoices) {
-                    if (empty($invoices['invoices'])) {
-                        $weeklyInvoices[$key]['invoices'] = [];
-                    }
-                }
-
-                $vendorData[] = [
+                return [
                     'vendor' => [
-                        'vend_name' => $vendor->vend_name,
+                        'id' => $vendor->id,
                         'vend_code' => $vendor->vend_code,
-                    ],
-                    'weekly' => $weeklyInvoices
+                        'vend_name' => $vendor->vend_name,
+                        'before' => $beforeData->sum('inv_not_payed'),
+                        'current' => $currentData->sum('inv_not_payed'),
+                        'after1' => $after1Data->sum('inv_not_payed'),
+                        'after2' => $after2Data->sum('inv_not_payed'),
+                        'after3' => $after3Data->sum('inv_not_payed'),
+                        'after4' => $after4Data->sum('inv_not_payed'),
+                        'total' => $vendor->invoices->sum('inv_not_payed'),
+                        'invoices' => [
+                            'before' => $beforeData->values()->all(),
+                            'current' => $currentData->values()->all(),
+                            'after1' => $after1Data->values()->all(),
+                            'after2' => $after2Data->values()->all(),
+                            'after3' => $after3Data->values()->all(),
+                            'after4' => $after4Data->values()->all()
+                        ],
+                    ]
                 ];
-            }
+            });
 
+            $sortedGroupedData = $groupedData->sortByDesc(function ($vendor) {
+                return $vendor['vendor']['total'];
+            })->values()->all();
 
-            $finalOuput = [
-                'vendors' => $vendorData,
-                'total_weekly' => $totalWeekly,
+            return [
+                'vendors' => $sortedGroupedData,
+                'before' => $beforeTotal,
+                'current' => $currentTotal,
+                'after1' => $after1Total,
+                'after2' => $after2Total,
+                'after3' => $after3Total,
+                'after4' => $after4Total,
+                'total' => $totalData
             ];
-
-            return $finalOuput;
         } catch (\Throwable $th) {
             return $th->getMessage();
         }
     }
 
-
-
-    public function getAgingDetailVendor($code)
+    public function getAgingDetail($code)
     {
         try {
-            $currentDate = date('Y-m-d');
-            $startDate = date('Y-m-d', strtotime("last Thursday", strtotime($currentDate)));
-            $endDate = date('Y-m-d', strtotime("next Wednesday", strtotime($startDate)));
+            $vendor = Vendors::where('vend_code', $code)
+                ->with(['invoices' => function ($query) {
+                    $query->select('vend_code', 'inv_number', 'inv_doc_date', 'inv_due_date', 'inv_not_payed', 'ppn_type', 'pph_type', 'pph_account', 'ppn_amount', 'pph_amount', 'dpp_amount')
+                        ->where('inv_pay_status', 0)
+                        ->where('inv_status', 2)
+                        ->orderBy('inv_due_date', 'asc');
+                }, 'invoices.pphAccounts', 'vendorAccounts'])
+                ->first();
+            $ppn = TaxAccounts::all();
 
-            $futureEndDates = [];
-            for ($i = 0; $i < 5; $i++) {
-                $futureEndDates[] = $endDate;
-                $endDate = date('Y-m-d', strtotime("+7 days", strtotime($endDate)));
+            if (!$vendor) {
+                return 'Vendor not found';
             }
 
-            $vendor = Vendors::with(['invoices' => function ($query) {
-                $query->where('inv_status', 2)
-                    ->where('inv_pay_status', 0);
-            }])->where('vend_code', $code)->first();
+            $beforeTotal = 0;
+            $currentTotal = 0;
+            $after1Total = 0;
+            $after2Total = 0;
+            $after3Total = 0;
+            $after4Total = 0;
+            $totalData = 0;
 
-            $weeklyInvoices = [
-                'week_1' => ['total' => 0, 'invoices' => []],
-                'week_2' => ['total' => 0, 'invoices' => []],
-                'week_3' => ['total' => 0, 'invoices' => []],
-                'week_4' => ['total' => 0, 'invoices' => []],
-                'week_5' => ['total' => 0, 'invoices' => []],
+            $today = Carbon::today();
+            $currentWeekStart = $today->copy()->startOfWeek(Carbon::THURSDAY);
+            $currentWeekEnd = $today->copy()->endOfWeek(Carbon::WEDNESDAY);
+            $after1WeekEnd = $currentWeekEnd->copy()->addWeek();
+            $after2WeekEnd = $after1WeekEnd->copy()->addWeek();
+            $after3WeekEnd = $after2WeekEnd->copy()->addWeek();
+            $after4WeekEnd = $after3WeekEnd->copy()->addWeek();
+
+            $beforeData = $vendor->invoices->filter(function ($invoice) use ($currentWeekStart) {
+                return Carbon::parse($invoice->inv_due_date)->lt($currentWeekStart);
+            });
+
+            $currentData = $vendor->invoices->filter(function ($invoice) use ($currentWeekStart, $currentWeekEnd) {
+                return Carbon::parse($invoice->inv_due_date)->between($currentWeekStart, $currentWeekEnd);
+            });
+
+            $after1Data = $vendor->invoices->filter(function ($invoice) use ($currentWeekEnd, $after1WeekEnd) {
+                return Carbon::parse($invoice->inv_due_date)->between($currentWeekEnd->copy()->addDay(), $after1WeekEnd);
+            });
+
+            $after2Data = $vendor->invoices->filter(function ($invoice) use ($after1WeekEnd, $after2WeekEnd) {
+                return Carbon::parse($invoice->inv_due_date)->between($after1WeekEnd->copy()->addDay(), $after2WeekEnd);
+            });
+
+            $after3Data = $vendor->invoices->filter(function ($invoice) use ($after2WeekEnd, $after3WeekEnd) {
+                return Carbon::parse($invoice->inv_due_date)->between($after2WeekEnd->copy()->addDay(), $after3WeekEnd);
+            });
+
+            $after4Data = $vendor->invoices->filter(function ($invoice) use ($after3WeekEnd) {
+                return Carbon::parse($invoice->inv_due_date)->gt($after3WeekEnd);
+            });
+
+            $beforeTotal = $beforeData->sum('inv_not_payed');
+            $currentTotal = $currentData->sum('inv_not_payed');
+            $after1Total = $after1Data->sum('inv_not_payed');
+            $after2Total = $after2Data->sum('inv_not_payed');
+            $after3Total = $after3Data->sum('inv_not_payed');
+            $after4Total = $after4Data->sum('inv_not_payed');
+            $totalData = $vendor->invoices->sum('inv_not_payed');
+
+            $vendorData = [
+                'id' => $vendor->id,
+                'vend_code' => $vendor->vend_code,
+                'vend_name' => $vendor->vend_name,
+                'vend_name' => $vendor->vend_name,
+                'account' => $vendor->account,
+                'dpp' => $vendor->vendorAccounts,
+                'before' => $beforeTotal,
+                'current' => $currentTotal,
+                'after1' => $after1Total,
+                'after2' => $after2Total,
+                'after3' => $after3Total,
+                'after4' => $after4Total,
+                'total' => $totalData,
+                'ppn' => $ppn,
+                'invoices' => [
+                    'before' => $beforeData->values()->all(),
+                    'current' => $currentData->values()->all(),
+                    'after1' => $after1Data->values()->all(),
+                    'after2' => $after2Data->values()->all(),
+                    'after3' => $after3Data->values()->all(),
+                    'after4' => $after4Data->values()->all()
+                ]
             ];
 
-            foreach ($vendor->invoices as $invoice) {
-                $dueDate = $invoice->inv_due_date;
-                $weekIndex = -1;
-                foreach ($futureEndDates as $index => $futureEndDate) {
-                    if ($dueDate <= $futureEndDate) {
-                        $weekIndex = $index;
-                        break;
-                    }
-                }
-
-                if ($weekIndex == -1) {
-                    $weekIndex = 0;
-                }
-
-                $weekKey = 'week_' . ($weekIndex + 1);
-                $weeklyInvoices[$weekKey]['invoices'][] = $invoice;
-                $weeklyInvoices[$weekKey]['total'] += $invoice->inv_not_payed;
-            }
-
-            foreach ($weeklyInvoices as $key => $invoices) {
-                if (empty($invoices['invoices'])) {
-                    $weeklyInvoices[$key]['invoices'] = [];
-                }
-            }
-
-            $data = [
-                'vendor' => [
-                    'vend_name' => $vendor->vend_name,
-                    'vend_code' => $vendor->vend_code,
-                ],
-                'weekly' => $weeklyInvoices
-            ];
-            return $data;
+            return $vendorData;
         } catch (\Throwable $th) {
             return $th->getMessage();
         }

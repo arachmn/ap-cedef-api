@@ -111,18 +111,10 @@ class InvoicesController extends Controller
         }
     }
 
-    public function getAging(Request $request): JsonResponse
+    public function getAging(): JsonResponse
     {
         try {
-            $type = $request->input('type', 'summary');
-            $dateStart = $request->input('cutOffDoc');
-            $dateEnd = $request->input('cutOffDue');
-
-            if ($type == 'summary') {
-                $data = $this->invoicesModel->getAgingSummary($dateStart, $dateEnd);
-            } elseif ($type == 'detail') {
-                $data = $this->invoicesModel->getAgingDetail($dateStart, $dateEnd);
-            }
+            $data = $this->invoicesModel->getAgingAll();
 
             if ($data) {
                 return response()->json([
@@ -146,11 +138,11 @@ class InvoicesController extends Controller
         }
     }
 
-    public function getAgingVendor(Request $request, $id): JsonResponse
+    public function getAgingVendor($id): JsonResponse
     {
         try {
 
-            $data = $this->invoicesModel->getAgingDetailVendor($id);
+            $data = $this->invoicesModel->getAgingDetail($id);
 
             if ($data) {
                 return response()->json([
@@ -219,8 +211,6 @@ class InvoicesController extends Controller
 
             $vendCode = $validatedData['vend_code'];
             $vendAccount = $validatedData['dpp_account'];
-            $invStatus = $validatedData['inv_status'];
-            $invType = $validatedData['inv_type'];
             $rnID = $validatedData['rn_id'];
 
             $this->connFirst->beginTransaction();
@@ -243,10 +233,8 @@ class InvoicesController extends Controller
                 ]);
             }
 
-            if ($invStatus == 2 && $invType == 2) {
-                if ($getRN = ReceiptNotes::find($rnID)) {
-                    $getRN->update(['rn_status' => 6]);
-                }
+            if ($getRN = ReceiptNotes::find($rnID)) {
+                $getRN->update(['rn_status' => 6]);
             }
 
             Invoices::create($validatedData);
@@ -323,8 +311,6 @@ class InvoicesController extends Controller
 
             $vendCode = $validatedData['vend_code'];
             $vendAccount = $validatedData['dpp_account'];
-            $invStatus = $validatedData['inv_status'];
-            $invType = $validatedData['inv_type'];
             $rnID = $validatedData['rn_id'];
 
             $this->connFirst->beginTransaction();
@@ -347,10 +333,8 @@ class InvoicesController extends Controller
                 ]);
             }
 
-            if ($invStatus == 2 && $invType == 2) {
-                if ($getRN = ReceiptNotes::find($rnID)) {
-                    $getRN->update(['rn_status' => 6]);
-                }
+            if ($getRN = ReceiptNotes::find($rnID)) {
+                $getRN->update(['rn_status' => 6]);
             }
 
             $getInv->update($validatedData);
@@ -367,6 +351,40 @@ class InvoicesController extends Controller
                 'code' => 500,
                 'status' => false,
                 'message' => $th->getMessage()
+            ], 500);
+        }
+    }
+
+    public function cancelData($id): JsonResponse
+    {
+        try {
+            $getInv = Invoices::where('id', $id)->first();
+
+
+            if (!$getInv) {
+                return response()->json([
+                    'code' => 404,
+                    'status' => false,
+                    'message' => "Not found."
+                ], 404);
+            } else {
+                $this->connFirst->beginTransaction();
+                if ($getRN = ReceiptNotes::find($getInv->rn_id)) {
+                    $getRN->update(['rn_status' => 4]);
+                }
+                $getInv->update(['inv_status' => 3]);
+                $this->connFirst->commit();
+                return response()->json([
+                    "code" => 200,
+                    "status" => true
+                ], 200);
+            }
+        } catch (\Throwable $th) {
+            $this->connFirst->rollBack();
+            return response()->json([
+                'code' => 500,
+                'status' => false,
+                'message' => 'Terjadi kesalahan saat menyimpan data: ' . $th->getMessage()
             ], 500);
         }
     }

@@ -16,8 +16,9 @@ return new class extends Migration
             $table->string('pv_number');
             $table->string('pvr_number');
             $table->integer('pvr_status');
+            $table->integer('bank_id');
+            $table->timestamp('pvr_rel_date')->nullable();
             $table->timestamp('pvr_doc_date');
-            $table->timestamp('pvr_due_date')->nullable();
             $table->string('pv_note')->nullable();
             $table->integer('user_id');
             $table->softDeletes();

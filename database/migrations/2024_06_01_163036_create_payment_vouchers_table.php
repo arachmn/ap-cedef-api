@@ -21,14 +21,12 @@ return new class extends Migration
             $table->integer('pv_status');
             $table->timestamp('pv_doc_date')->nullable();
             $table->timestamp('pv_due_date')->nullable();
-            $table->integer('bank_id');
             $table->string('apvdh_code')->unique();
             $table->decimal('ppn_amount', 12, 2);
             $table->decimal('pph_amount', 12, 2);
             $table->decimal('dpp_amount', 12, 2);
             $table->decimal('pv_amount', 12, 2);
             $table->string('pv_note')->nullable();
-            $table->text('pv_description');
             $table->integer('user_id');
             $table->softDeletes();
             $table->timestamps();

@@ -96,8 +96,10 @@ class ReceiptNotesController extends Controller
         try {
 
             $perPage = $request->input('perPage', 50);
+            $status = $request->input('status', 7);
+            $dep = $request->input('department', null);
 
-            $data = $this->receiptNotesModel->getDataApprove($perPage, $id);
+            $data = $this->receiptNotesModel->getDataApprove($perPage, $status, $dep, $id);
 
             if ($data) {
                 return response()->json([
@@ -279,7 +281,6 @@ class ReceiptNotesController extends Controller
                 'dep_code' => 'required|string',
                 'do_number' => 'required|string',
                 'do_id' => 'required|integer',
-                'approval' => 'required|string',
                 'rn_receipt_date' => 'required|date',
                 'rnt_id' => 'required|integer',
                 'rn_note' => 'nullable|string',
@@ -298,74 +299,124 @@ class ReceiptNotesController extends Controller
 
             $validatedData = $validator->validated();
 
-            $apvhCode = $validatedData['approval'];
-            $doId = $validatedData['do_id'];
             $depCode = $validatedData['dep_code'];
-            $rnStatus = $validatedData['rn_status'];
+            $apvhCode = ApprovalHeaders::where('apvh_target', 1)->where('dep_code', $depCode)->where('apvh_status', 1)->first();
+            $doId = $validatedData['do_id'];
 
-            $this->connFirst->beginTransaction();
+            if ($apvhCode) {
+                $this->connFirst->beginTransaction();
 
-            $lastRN = ReceiptNotes::withTrashed()->where('dep_code', $depCode)
-                ->whereMonth('rn_date', Carbon::now()->month)
-                ->whereYear('rn_date', Carbon::now()->year)
-                ->selectRaw('CAST(SUBSTRING(rn_number, 1, 4) AS UNSIGNED) as rn_code')
-                ->orderByDesc('rn_code')
-                ->first();
+                $lastRN = ReceiptNotes::withTrashed()->where('dep_code', $depCode)
+                    ->whereMonth('rn_date', Carbon::now()->month)
+                    ->whereYear('rn_date', Carbon::now()->year)
+                    ->selectRaw('CAST(SUBSTRING(rn_number, 1, 4) AS UNSIGNED) as rn_code')
+                    ->orderByDesc('rn_code')
+                    ->first();
 
-            $lastRnNumber = $lastRN ? $lastRN->rn_code : 0;
+                $lastRnNumber = $lastRN ? $lastRN->rn_code : 0;
 
-            $lastApvId = ApprovalDataHeaders::withTrashed()->max('id') ?? 0;
+                $lastApvId = ApprovalDataHeaders::withTrashed()->max('id') ?? 0;
 
-            $lisUserApv = ApprovalHeaders::with('approvalUsers.users')
-                ->whereHas('approvalUsers.users')
-                ->where('apvh_code', $apvhCode)
-                ->first();
+                $lisUserApv = ApprovalHeaders::with('approvalUsers.users')
+                    ->whereHas('approvalUsers.users')
+                    ->where('apvh_code', $apvhCode->apvh_code)
+                    ->first();
 
-            if ($lisUserApv) {
-                $apvdhCode = "APVDH-" . str_pad($lastApvId + 1, 8, '0', STR_PAD_LEFT);
+                if ($lisUserApv) {
+                    $apvdhCode = "APVDH-" . str_pad($lastApvId + 1, 8, '0', STR_PAD_LEFT);
 
-                ApprovalDataHeaders::create([
-                    'apvdh_code' => $apvdhCode,
-                    'apvh_code' =>  $apvhCode,
-                ]);
-
-                foreach ($lisUserApv->approvalUsers as $approvalUser) {
-                    Approvals::create([
+                    ApprovalDataHeaders::create([
                         'apvdh_code' => $apvdhCode,
-                        'apv_level' =>  $approvalUser->apvu_level,
-                        'user_id' =>  $approvalUser->user_id,
-                        'apv_status' =>  1
+                        'apvh_code' =>  $apvhCode->apvh_code,
                     ]);
-                }
 
-                $validatedData['rn_number'] = str_pad($lastRnNumber + 1, 4, '0', STR_PAD_LEFT) . "/NTB/" . $depCode . "/" . date('m/y');
-                $validatedData['apvdh_code'] = $apvdhCode;
-                $validatedData['rn_date'] = date('Y-m-d');
+                    foreach ($lisUserApv->approvalUsers as $approvalUser) {
+                        if ($approvalUser->apvu_level == 1) {
+                            Approvals::create([
+                                'apvdh_code' => $apvdhCode,
+                                'apv_level' =>  $approvalUser->apvu_level,
+                                'apv_open' =>  1,
+                                'user_id' =>  $approvalUser->user_id,
+                                'apv_status' =>  1
+                            ]);
+                        } else {
+                            Approvals::create([
+                                'apvdh_code' => $apvdhCode,
+                                'apv_level' =>  $approvalUser->apvu_level,
+                                'user_id' =>  $approvalUser->user_id,
+                                'apv_status' =>  1
+                            ]);
+                        }
+                    }
 
-                unset($validatedData['approval']);
+                    $validatedData['rn_number'] = str_pad($lastRnNumber + 1, 4, '0', STR_PAD_LEFT) . "/NTB/" . $depCode . "/" . date('m/y');
+                    $validatedData['apvdh_code'] = $apvdhCode;
+                    $validatedData['rn_date'] = date('Y-m-d');
 
-                ReceiptNotes::create($validatedData);
+                    unset($validatedData['approval']);
 
-                if ($rnStatus == 2) {
+                    ReceiptNotes::create($validatedData);
+
                     DeliveryOrders::where('id', $doId)
                         ->update([
                             'do_status' => 4
                         ]);
-                }
 
+                    $this->connFirst->commit();
+
+                    return response()->json([
+                        "code" => 200,
+                        "status" => true
+                    ], 200);
+                } else {
+                    $this->connFirst->rollBack();
+                    return response()->json([
+                        'code' => 422,
+                        'status' => false,
+                        'message' => 'Data approval tidak ditemukan'
+                    ], 422);
+                }
+            } else {
+                return response()->json([
+                    'code' => 422,
+                    'status' => false,
+                    'message' => 'Data approval tidak ditemukan'
+                ], 422);
+            }
+        } catch (\Throwable $th) {
+            $this->connFirst->rollBack();
+            return response()->json([
+                'code' => 500,
+                'status' => false,
+                'message' => 'Terjadi kesalahan saat menyimpan data: ' . $th->getMessage()
+            ], 500);
+        }
+    }
+
+    public function cancelData($id): JsonResponse
+    {
+        try {
+            $getRN = ReceiptNotes::where('id', $id)->first();
+
+            if (!$getRN) {
+                return response()->json([
+                    'code' => 404,
+                    'status' => false,
+                    'message' => "Not found."
+                ], 404);
+            } else {
+                $getDO = DeliveryOrders::find($getRN->do_id);
+                $this->connFirst->beginTransaction();
+                if ($getDO) {
+                    $getDO->update(['do_status' => 2]);
+                }
+                $getRN->update(['rn_status' => 3]);
                 $this->connFirst->commit();
 
                 return response()->json([
                     "code" => 200,
                     "status" => true
                 ], 200);
-            } else {
-                $this->connFirst->rollBack();
-                return response()->json([
-                    'code' => 422,
-                    'status' => false,
-                    'message' => 'Data approval tidak ditemukan'
-                ], 422);
             }
         } catch (\Throwable $th) {
             $this->connFirst->rollBack();
@@ -393,7 +444,6 @@ class ReceiptNotesController extends Controller
             $validator = Validator::make($request->all(), [
                 'do_number' => 'required|string',
                 'do_id' => 'required|integer',
-                'approval' => 'required|string',
                 'rn_receipt_date' => 'required|date',
                 'rnt_id' => 'required|integer',
                 'rn_note' => 'nullable|string',
@@ -411,53 +461,14 @@ class ReceiptNotesController extends Controller
             }
 
             $validatedData = $validator->validated();
-
-            $apvhCode = $validatedData['approval'];
-            $rnStatus = $validatedData['rn_status'];
             $doId = $validatedData['do_id'];
 
             $this->connFirst->beginTransaction();
 
-            if ($apvhCode != $getRN->approvalDataHeaders->apvh_code) {
-                $lastApvId = ApprovalDataHeaders::withTrashed()->max('id') ?? 0;
-
-                $lisUserApv = ApprovalHeaders::with('approvalUsers.users')
-                    ->whereHas('approvalUsers.users')
-                    ->where('apvh_code', $apvhCode)
-                    ->first();
-
-                if ($lisUserApv) {
-                    $apvdhCode = "APVDH-" . str_pad($lastApvId + 1, 8, '0', STR_PAD_LEFT);
-
-                    ApprovalDataHeaders::create([
-                        'apvdh_code' => $apvdhCode,
-                        'apvh_code' =>  $apvhCode,
-                    ]);
-
-                    foreach ($lisUserApv->approvalUsers as $approvalUser) {
-                        Approvals::create([
-                            'apvdh_code' => $apvdhCode,
-                            'apv_level' =>  $approvalUser->apvu_level,
-                            'user_id' =>  $approvalUser->user_id,
-                            'apv_status' =>  1
-                        ]);
-                    }
-                    $validatedData['apvdh_code'] = $apvdhCode;
-                } else {
-                    return response()->json([
-                        'code' => 422,
-                        'status' => false,
-                        'message' => 'Data approval tidak ditemukan'
-                    ], 422);
-                }
-            }
-
-            if ($rnStatus == 2) {
-                DeliveryOrders::where('id', $doId)
-                    ->update([
-                        'do_status' => 4
-                    ]);
-            }
+            DeliveryOrders::where('id', $doId)
+                ->update([
+                    'do_status' => 4
+                ]);
 
             $validatedData['rn_date'] = date('Y-m-d');
 
@@ -488,8 +499,6 @@ class ReceiptNotesController extends Controller
 
             $getApvMax = Approvals::where('apvdh_code', $getRN->approvalDataHeaders->apvdh_code)->max('apv_level');
 
-
-
             if (!$getRN) {
                 return response()->json([
                     'code' => 404,
@@ -501,7 +510,7 @@ class ReceiptNotesController extends Controller
             $validator = Validator::make($request->all(), [
                 'user_id' => 'required|integer',
                 'apv_status' => 'required|integer',
-                'apv_note' => 'required|string',
+                'apv_note' => 'nullable|string',
             ]);
 
             if ($validator->fails()) {
@@ -516,10 +525,16 @@ class ReceiptNotesController extends Controller
 
             $apvStatus = $validatedData['apv_status'];
             $userId = $validatedData['user_id'];
+            $this->connFirst->beginTransaction();
 
             $getApvUser = Approvals::where('apvdh_code', $getRN->approvalDataHeaders->apvdh_code)->where('user_id', $userId)->first();
+            $getNextApv = Approvals::where('apvdh_code', $getRN->approvalDataHeaders->apvdh_code)->where('apv_level', $getApvUser->apv_level + 1)->first();
 
             if ($apvStatus == 3) {
+                $getDO = DeliveryOrders::find($getRN->do_id);
+                if ($getDO) {
+                    $getDO->update(['do_status' => 2]);
+                }
                 $getRN->update([
                     'rn_status' => 5
                 ]);
@@ -529,6 +544,10 @@ class ReceiptNotesController extends Controller
                 $getRN->update([
                     'rn_status' => 4
                 ]);
+            }
+
+            if ($getNextApv) {
+                $getNextApv->update(['apv_open' => 1]);
             }
 
             $validatedData['apv_date'] = date('Y-m-d');

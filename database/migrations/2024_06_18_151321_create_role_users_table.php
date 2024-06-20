@@ -11,15 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('approvals', function (Blueprint $table) {
+        Schema::create('role_users', function (Blueprint $table) {
             $table->id();
-            $table->string('apvdh_code');
-            $table->timestamp('apv_date')->nullable();
-            $table->integer('apv_level');
-            $table->boolean('apv_open');
-            $table->boolean('apv_status');
-            $table->text('apv_note')->nullable();
             $table->integer('user_id');
+            $table->integer('role_id');
+            $table->boolean('status');
+            $table->string('dep_code')->nullable();
             $table->softDeletes();
             $table->timestamps();
         });
@@ -30,6 +27,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('approvals');
+        Schema::dropIfExists('role_users');
     }
 };

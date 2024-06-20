@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('payment_voucher_invoices', function (Blueprint $table) {
             $table->id();
             $table->integer('pv_id');
+            $table->integer('inv_id');
             $table->string('inv_number');
             $table->decimal('ppn_amount', 12, 2);
             $table->decimal('pph_amount', 12, 2);

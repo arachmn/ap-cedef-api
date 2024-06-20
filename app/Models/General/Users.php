@@ -23,9 +23,27 @@ class Users extends Model implements AuthenticatableContract, JWTSubject
         'updated_at'
     ];
 
-    public function roles()
+    public function roleUsers()
     {
-        return $this->belongsTo(Roles::class, 'role_id', 'id');
+        return $this->hasMany(RoleUsers::class, 'user_id', 'id');
+    }
+
+    public function searchData($keyword)
+    {
+        try {
+            $rows = $this->where('name', 'LIKE', "%$keyword%")
+                ->where('status', 1)
+                ->limit(20)
+                ->get();
+
+            if ($rows->isEmpty()) {
+                return false;
+            } else {
+                return $rows;
+            }
+        } catch (\Throwable $th) {
+            return false;
+        }
     }
 
     public function departements()
